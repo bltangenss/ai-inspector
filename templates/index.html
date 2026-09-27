@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Инспектор — детектор ИИ-изображений</title>
+  <link rel="manifest" href="/manifest.json" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0d14;
+      --surface:  #16161f;
+      --border:   #2a2a3d;
+      --accent:   #7c3aed;
+      --accent2:  #a855f7;
+      --real:     #10b981;
+      --ai:       #ef4444;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --radius:   16px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 4rem;
+    }
+
+    /* ── HEADER ── */
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #a78bfa, #7c3aed, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p {
+      margin-top: .5rem;
+      color: var(--muted);
+      font-size: .95rem;
+    }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    /* ── DROP ZONE ── */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 3rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--accent2);
+      background: rgba(124,58,237,.07);
+    }
+    #drop-zone .icon { font-size: 3rem; margin-bottom: .75rem; }
+    #drop-zone p { color: var(--muted); font-size: .9rem; line-height: 1.6; }
+    #drop-zone span { color: var(--accent2); font-weight: 600; }
+    #file-input { display: none; }
+
+    /* ── PREVIEW ── */
+    #preview-wrap {
+      display: none;
+      margin-top: 1.5rem;
+      position: relative;
+    }
+    #preview-img {
+      width: 100%;
+      max-height: 320px;
+      object-fit: contain;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0d0d14;
+    }
+    #clear-btn {
+      position: absolute;
+      top: 8px; right: 8px;
+      background: rgba(0,0,0,.7);
+      border: none; color: #fff;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── ANALYZE BUTTON ── */
+    #analyze-btn {
+      display: none;
+      width: 100%;
+      margin-top: 1.25rem;
+      padding: .85rem;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+    }
+    #analyze-btn:hover { opacity: .9; }
+    #analyze-btn:active { transform: scale(.98); }
+    #analyze-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── LOADER ── */
+    #loader {
+      display: none;
+      text-align: center;
+      padding: 1.5rem 0;
+      color: var(--muted);
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent2);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── RESULT ── */
+    #result { display: none; margin-top: 1.5rem; }
+
+    .verdict-badge {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem;
+      border-radius: 12px;
+      margin-bottom: 1.25rem;
+      border: 1px solid;
+    }
+    .verdict-badge.ai   { background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.3);  }
+    .verdict-badge.real { background: rgba(16,185,129,.1); border-color: rgba(16,185,129,.3); }
+
+    .verdict-badge .emoji { font-size: 2.5rem; }
+    .verdict-badge .label { font-size: 1.5rem; font-weight: 800; }
+    .verdict-badge.ai   .label { color: var(--ai);   }
+    .verdict-badge.real .label { color: var(--real);  }
+    .verdict-badge .sub { color: var(--muted); font-size: .85rem; margin-top: .2rem; }
+
+    /* bars */
+    .bars { display: flex; flex-direction: column; gap: .75rem; }
+    .bar-row label {
+      display: flex; justify-content: space-between;
+      font-size: .85rem; color: var(--muted);
+      margin-bottom: .3rem;
+    }
+    .bar-track {
+      height: 10px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width .8s cubic-bezier(.4,0,.2,1);
+      width: 0;
+    }
+    .bar-fill.ai   { background: linear-gradient(90deg,#ef4444,#f97316); }
+    .bar-fill.real { background: linear-gradient(90deg,#10b981,#06b6d4); }
+
+    .confidence-tag {
+      margin-top: 1rem;
+      display: inline-block;
+      padding: .3rem .75rem;
+      border-radius: 99px;
+      font-size: .8rem;
+      font-weight: 600;
+      background: rgba(124,58,237,.2);
+      color: var(--accent2);
+      border: 1px solid rgba(124,58,237,.3);
+    }
+
+    /* ── ERROR ── */
+    #error-msg {
+      display: none;
+      margin-top: 1rem;
+      padding: 1rem 1.25rem;
+      border-radius: 10px;
+      background: rgba(239,68,68,.1);
+      border: 1px solid rgba(239,68,68,.3);
+      color: #fca5a5;
+      font-size: .9rem;
+    }
+
+    /* ── STATUS BAR ── */
+    #status-bar {
+      margin-top: 1rem;
+      font-size: .78rem;
+      color: var(--muted);
+      text-align: right;
+    }
+    #status-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+      background: var(--muted);
+    }
+    #status-dot.ready  { background: var(--real); }
+    #status-dot.error  { background: var(--ai);   }
+    #status-dot.loading { background: #f59e0b; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    footer {
+      margin-top: 2.5rem;
+      color: var(--muted);
+      font-size: .78rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🔍 AI Инспектор</h1>
+  <p>Определяет: создано ли изображение искусственным интеллектом или оно реальное</p>
+</header>
+
+<div class="card">
+
+  <!-- DROP ZONE -->
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <div class="icon">🖼️</div>
+    <p>Перетащите изображение сюда<br>или <span>нажмите для выбора</span></p>
+    <p style="margin-top:.5rem; font-size:.78rem;">PNG · JPG · WEBP · GIF · BMP — до 16 МБ</p>
+    <input type="file" id="file-input" accept="image/*" />
+  </div>
+
+  <!-- PREVIEW -->
+  <div id="preview-wrap">
+    <img id="preview-img" src="" alt="Preview" />
+    <button id="clear-btn" title="Убрать">✕</button>
+  </div>
+
+  <!-- ANALYZE -->
+  <button id="analyze-btn">🔍 Анализировать</button>
+
+  <!-- LOADER -->
+  <div id="loader">
+    <div class="spinner"></div>
+    <p>Анализирую изображение…</p>
+  </div>
+
+  <!-- ERROR -->
+  <div id="error-msg"></div>
+
+  <!-- RESULT -->
+  <div id="result">
+    <div class="verdict-badge" id="verdict-badge">
+      <span class="emoji" id="verdict-emoji"></span>
+      <div>
+        <div class="label" id="verdict-label"></div>
+        <div class="sub"  id="verdict-text"></div>
+      </div>
+    </div>
+
+    <div class="bars">
+      <div class="bar-row">
+        <label><span>🤖 ИИ-изображение</span><span id="ai-pct"></span></label>
+        <div class="bar-track"><div class="bar-fill ai" id="bar-ai"></div></div>
+      </div>
+      <div class="bar-row">
+        <label><span>📷 Реальное фото</span><span id="real-pct"></span></label>
+        <div class="bar-track"><div class="bar-fill real" id="bar-real"></div></div>
+      </div>
+    </div>
+
+    <span class="confidence-tag" id="confidence-tag"></span>
+  </div>
+
+  <!-- MODEL STATUS -->
+  <div id="status-bar">
+    <span id="status-dot"></span>
+    <span id="status-text">Проверка модели…</span>
+  </div>
+
+</div>
+
+<footer>Модель: <b>umm-maybe/AI-image-detector</b> (ViT) · AI Инспектор</footer>
+
+<script>
+const dropZone   = document.getElementById('drop-zone');
+const fileInput  = document.getElementById('file-input');
+const previewWrap= document.getElementById('preview-wrap');
+const previewImg = document.getElementById('preview-img');
+const clearBtn   = document.getElementById('clear-btn');
+const analyzeBtn = document.getElementById('analyze-btn');
+const loader     = document.getElementById('loader');
+const resultDiv  = document.getElementById('result');
+const errorMsg   = document.getElementById('error-msg');
+
+let selectedFile = null;
+
+// ── drag & drop ──────────────────────────────────────────
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) setFile(f);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+function setFile(f) {
+  selectedFile = f;
+  const url = URL.createObjectURL(f);
+  previewImg.src = url;
+  previewWrap.style.display = 'block';
+  analyzeBtn.style.display  = 'block';
+  resultDiv.style.display   = 'none';
+  errorMsg.style.display    = 'none';
+}
+
+clearBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  selectedFile = null;
+  fileInput.value = '';
+  previewWrap.style.display = 'none';
+  analyzeBtn.style.display  = 'none';
+  resultDiv.style.display   = 'none';
+  errorMsg.style.display    = 'none';
+});
+
+// ── analyze ──────────────────────────────────────────────
+analyzeBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+
+  analyzeBtn.disabled = true;
+  loader.style.display = 'block';
+  resultDiv.style.display = 'none';
+  errorMsg.style.display  = 'none';
+
+  const fd = new FormData();
+  fd.append('image', selectedFile);
+
+  try {
+    const res  = await fetch('/api/image/analyze', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      showError(data.error || 'Неизвестная ошибка сервера');
+      return;
+    }
+    showResult(data);
+  } catch(err) {
+    showError('Не удалось подключиться к серверу: ' + err.message);
+  } finally {
+    loader.style.display = 'none';
+    analyzeBtn.disabled  = false;
+  }
+});
+
+function showResult(d) {
+  const isAI = d.label === 'AI';
+
+  const badge = document.getElementById('verdict-badge');
+  badge.className = 'verdict-badge ' + (isAI ? 'ai' : 'real');
+
+  document.getElementById('verdict-emoji').textContent = isAI ? '🤖' : '📷';
+  document.getElementById('verdict-label').textContent = isAI ? 'ИИ-изображение' : 'Реальное фото';
+  document.getElementById('verdict-text').textContent  = d.verdict;
+
+  document.getElementById('ai-pct').textContent   = d.ai_probability.toFixed(1) + '%';
+  document.getElementById('real-pct').textContent = d.real_probability.toFixed(1) + '%';
+
+  resultDiv.style.display = 'block';
+
+  // animate bars
+  requestAnimationFrame(() => {
+    document.getElementById('bar-ai').style.width   = d.ai_probability   + '%';
+    document.getElementById('bar-real').style.width = d.real_probability + '%';
+  });
+
+  document.getElementById('confidence-tag').textContent = 'Уверенность: ' + d.confidence;
+}
+
+function showError(msg) {
+  errorMsg.textContent = '⚠️ ' + msg;
+  errorMsg.style.display = 'block';
+}
+
+// ── model status ─────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const res  = await fetch('/api/image/status');
+    const data = await res.json();
+    const dot  = document.getElementById('status-dot');
+    const txt  = document.getElementById('status-text');
+    dot.className = 'status-dot ' + data.status;
+    const labels = { ready:'Модель готова', loading:'Загрузка модели…', error:'Ошибка модели', not_loaded:'Модель не загружена' };
+    txt.textContent = labels[data.status] || data.status;
+    if (data.status === 'loading') setTimeout(checkStatus, 3000);
+  } catch { /* ignore */ }
+}
+checkStatus();
+</script>
+</body>
+</html>
